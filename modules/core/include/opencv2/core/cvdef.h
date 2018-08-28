@@ -79,6 +79,8 @@ namespace cv { namespace debug_build_guard { } using namespace debug_build_guard
 #define __CV_CAT(x, y) __CV_CAT_(x, y)
 #endif
 
+#define __CV_VA_NUM_ARGS_HELPER(_1, _2, _3, _4, _5, _6, _7, _8, _9, _10, N, ...) N
+#define __CV_VA_NUM_ARGS(...) __CV_VA_NUM_ARGS_HELPER(__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0)
 
 // undef problematic defines sometimes defined by system headers (windows.h in particular)
 #undef small
@@ -251,10 +253,11 @@ typedef union Cv64suf
 }
 Cv64suf;
 
-#define OPENCV_ABI_COMPATIBILITY 300
+#define OPENCV_ABI_COMPATIBILITY 400
 
 #ifdef __OPENCV_BUILD
-#  define DISABLE_OPENCV_24_COMPATIBILITY
+#  define DISABLE_OPENCV_3_COMPATIBILITY
+#  define OPENCV_DISABLE_DEPRECATED_COMPATIBILITY
 #endif
 
 #ifdef CVAPI_EXPORTS
@@ -304,6 +307,9 @@ Cv64suf;
 #define CV_PROP_RW
 #define CV_WRAP
 #define CV_WRAP_AS(synonym)
+#define CV_WRAP_MAPPABLE(mappable)
+#define CV_WRAP_PHANTOM(phantom_header)
+#define CV_WRAP_DEFAULT(val)
 
 /****************************************************************************************\
 *                                  Matrix type (Mat)                                     *
@@ -346,7 +352,13 @@ Cv64suf;
 // We need to use simplified definition for them.
 #ifndef CV_STATIC_ANALYSIS
 # if defined(__KLOCWORK__) || defined(__clang_analyzer__) || defined(__COVERITY__)
-#   define CV_STATIC_ANALYSIS
+#   define CV_STATIC_ANALYSIS 1
+# endif
+#else
+# if defined(CV_STATIC_ANALYSIS) && !(__CV_CAT(1, CV_STATIC_ANALYSIS) == 1)  // defined and not empty
+#   if 0 == CV_STATIC_ANALYSIS
+#     undef CV_STATIC_ANALYSIS
+#   endif
 # endif
 #endif
 
@@ -406,6 +418,24 @@ Cv64suf;
 
 
 /****************************************************************************************\
+*                                  CV_NODISCARD attribute                                *
+* encourages the compiler to issue a warning if the return value is discarded (C++17)    *
+\****************************************************************************************/
+#ifndef CV_NODISCARD
+#  if defined(__GNUC__)
+#    define CV_NODISCARD __attribute__((__warn_unused_result__)) // at least available with GCC 3.4
+#  elif defined(__clang__) && defined(__has_attribute)
+#    if __has_attribute(__warn_unused_result__)
+#      define CV_NODISCARD __attribute__((__warn_unused_result__))
+#    endif
+#  endif
+#endif
+#ifndef CV_NODISCARD
+#  define CV_NODISCARD /* nothing by default */
+#endif
+
+
+/****************************************************************************************\
 *                                    C++ 11                                              *
 \****************************************************************************************/
 #ifndef CV_CXX11
@@ -417,46 +447,34 @@ Cv64suf;
 #    undef CV_CXX11
 #  endif
 #endif
-
-
-/****************************************************************************************\
-*                                    C++ Move semantics                                  *
-\****************************************************************************************/
-
-#ifndef CV_CXX_MOVE_SEMANTICS
-#  if __cplusplus >= 201103L || defined(__GXX_EXPERIMENTAL_CXX0X__) || (defined(_MSC_VER) && _MSC_VER >= 1600)
-#    define CV_CXX_MOVE_SEMANTICS 1
-#  elif defined(__clang)
-#    if __has_feature(cxx_rvalue_references)
-#      define CV_CXX_MOVE_SEMANTICS 1
-#    endif
-#  endif
-#else
-#  if CV_CXX_MOVE_SEMANTICS == 0
-#    undef CV_CXX_MOVE_SEMANTICS
-#  endif
+#ifndef CV_CXX11
+#  error "OpenCV 4.x+ requires enabled C++11 support"
 #endif
 
-/****************************************************************************************\
-*                                    C++11 std::array                                    *
-\****************************************************************************************/
+#define CV_CXX_MOVE_SEMANTICS 1
+#define CV_CXX_STD_ARRAY 1
+#include <array>
+#ifndef CV_OVERRIDE
+#  define CV_OVERRIDE override
+#endif
+#ifndef CV_FINAL
+#  define CV_FINAL final
+#endif
 
-#ifndef CV_CXX_STD_ARRAY
+#ifndef CV_NOEXCEPT
 #  if __cplusplus >= 201103L || (defined(_MSC_VER) && _MSC_VER >= 1900/*MSVS 2015*/)
-#    define CV_CXX_STD_ARRAY 1
-#    include <array>
+#    define CV_NOEXCEPT noexcept
 #  endif
-#else
-#  if CV_CXX_STD_ARRAY == 0
-#    undef CV_CXX_STD_ARRAY
-#  endif
+#endif
+#ifndef CV_NOEXCEPT
+#  define CV_NOEXCEPT
 #endif
 
 
 // Integer types portatibility
 #ifdef OPENCV_STDINT_HEADER
 #include OPENCV_STDINT_HEADER
-#else
+#elif defined(__cplusplus)
 #if defined(_MSC_VER) && _MSC_VER < 1600 /* MSVS 2010 */
 namespace cv {
 typedef signed char int8_t;
@@ -493,9 +511,15 @@ typedef ::int64_t int64_t;
 typedef ::uint64_t uint64_t;
 }
 #endif
+#else // pure C
+#include <stdint.h>
 #endif
 
 
 //! @}
+
+#ifndef __cplusplus
+#include "opencv2/core/fast_math.hpp" // define cvRound(double)
+#endif
 
 #endif // OPENCV_CORE_CVDEF_H
