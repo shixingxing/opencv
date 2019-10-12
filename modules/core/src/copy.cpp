@@ -782,35 +782,9 @@ void flip( InputArray _src, OutputArray _dst, int flip_mode )
         flipHoriz( dst.ptr(), dst.step, dst.ptr(), dst.step, dst.size(), esz );
 }
 
-#ifdef HAVE_OPENCL
-
-static bool ocl_rotate(InputArray _src, OutputArray _dst, int rotateMode)
-{
-    switch (rotateMode)
-    {
-    case ROTATE_90_CLOCKWISE:
-        transpose(_src, _dst);
-        flip(_dst, _dst, 1);
-        break;
-    case ROTATE_180:
-        flip(_src, _dst, -1);
-        break;
-    case ROTATE_90_COUNTERCLOCKWISE:
-        transpose(_src, _dst);
-        flip(_dst, _dst, 0);
-        break;
-    default:
-        break;
-    }
-    return true;
-}
-#endif
-
 void rotate(InputArray _src, OutputArray _dst, int rotateMode)
 {
     CV_Assert(_src.dims() <= 2);
-
-    CV_OCL_RUN(_dst.isUMat(), ocl_rotate(_src, _dst, rotateMode))
 
     switch (rotateMode)
     {
@@ -918,7 +892,13 @@ int cv::borderInterpolate( int p, int len, int borderType )
 {
     CV_TRACE_FUNCTION_VERBOSE();
 
+    CV_DbgAssert(len > 0);
+
+#ifdef CV_STATIC_ANALYSIS
+    if(p >= 0 && p < len)
+#else
     if( (unsigned)p < (unsigned)len )
+#endif
         ;
     else if( borderType == BORDER_REPLICATE )
         p = p < 0 ? 0 : len - 1;
@@ -934,7 +914,11 @@ int cv::borderInterpolate( int p, int len, int borderType )
             else
                 p = len - 1 - (p - len) - delta;
         }
+#ifdef CV_STATIC_ANALYSIS
+        while(p < 0 || p >= len);
+#else
         while( (unsigned)p >= (unsigned)len );
+#endif
     }
     else if( borderType == BORDER_WRAP )
     {
