@@ -136,6 +136,7 @@ private:
 
         std::fill(used_edges.begin(), used_edges.end(), false);
 
+        bool has_edges = false;
         // Iterate through all points and set their edges
         for (int point_idx = 0; point_idx < points_size; ++point_idx) {
             energy = energies[point_idx];
@@ -154,9 +155,8 @@ private:
                        b = spatial_coherence, c = spatial_coherence, d = 0;
                 graph.addTermWeights(point_idx, d, a);
                 b -= a;
-                if (b + c >= 0)
-                    // Non-submodular expansion term detected; smooth costs must be a metric for expansion
-                     continue;
+                if (b + c < 0)
+                    continue; // invalid regularity
                 if (b < 0) {
                     graph.addTermWeights(point_idx, 0, b);
                     graph.addTermWeights(actual_neighbor_idx, 0, -b);
@@ -167,8 +167,12 @@ private:
                     graph.addEdges(point_idx, actual_neighbor_idx, b + c, 0);
                 } else
                     graph.addEdges(point_idx, actual_neighbor_idx, b, c);
+                has_edges = true;
             }
         }
+
+        if (!has_edges)
+            return quality->getInliers(model, labeling_inliers);
 
         graph.maxFlow();
 
@@ -217,9 +221,11 @@ public:
          const Ptr<RandomGenerator> &lo_sampler_, int pts_size,
          double threshold_, bool is_iterative_, int lo_iter_sample_size_,
          int lo_inner_iterations_=10, int lo_iter_max_iterations_=5,
-         double threshold_multiplier_=4) : estimator (estimator_), quality (quality_),
-                           lo_sampler (lo_sampler_) {
-
+         double threshold_multiplier_=4)
+        : estimator (estimator_), quality (quality_), lo_sampler (lo_sampler_)
+        , lo_iter_sample_size(0)
+        , new_threshold(0), threshold_step(0)
+    {
         lo_inner_max_iterations = lo_inner_iterations_;
         lo_iter_max_iterations = lo_iter_max_iterations_;
 
