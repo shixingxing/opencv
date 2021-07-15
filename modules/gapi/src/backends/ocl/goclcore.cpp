@@ -490,14 +490,6 @@ GAPI_OCL_KERNEL(GOCLCrop, cv::gapi::core::GCrop)
     }
 };
 
-GAPI_OCL_KERNEL(GOCLCopy, cv::gapi::core::GCopy)
-{
-    static void run(const cv::UMat& in, cv::UMat& out)
-    {
-        in.copyTo(out);
-    }
-};
-
 GAPI_OCL_KERNEL(GOCLConcatHor, cv::gapi::core::GConcatHor)
 {
     static void run(const cv::UMat& in1, const cv::UMat& in2, cv::UMat& out)
@@ -527,6 +519,15 @@ GAPI_OCL_KERNEL(GOCLConvertTo, cv::gapi::core::GConvertTo)
     static void run(const cv::UMat& in, int rtype, double alpha, double beta, cv::UMat& out)
     {
         in.convertTo(out, rtype, alpha, beta);
+    }
+};
+
+
+GAPI_OCL_KERNEL(GOCLTranspose, cv::gapi::core::GTranspose)
+{
+    static void run(const cv::UMat& in,  cv::UMat& out)
+    {
+        cv::transpose(in, out);
     }
 };
 
@@ -590,11 +591,11 @@ cv::gapi::GKernelPackage cv::gapi::core::ocl::kernels()
          , GOCLRemap
          , GOCLFlip
          , GOCLCrop
-         , GOCLCopy
          , GOCLConcatHor
          , GOCLConcatVert
          , GOCLLUT
          , GOCLConvertTo
+         , GOCLTranspose
          >();
     return pkg;
 }

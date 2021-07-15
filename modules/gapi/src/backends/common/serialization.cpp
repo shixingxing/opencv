@@ -2,7 +2,7 @@
 // It is subject to the license terms in the LICENSE file found in the top-level directory
 // of this distribution and at http://opencv.org/license.html.
 //
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2020-2021 Intel Corporation
 
 #include <set> // set
 #include <map> // map
@@ -32,6 +32,14 @@ void putData(GSerialized& s, const cv::gimpl::GModel::ConstGraph& cg, const ade:
         });
     if (s.m_datas.end() == it) {
         s.m_datas.push_back(gdata);
+
+        if (cg.metadata(nh).contains<gimpl::ConstValue>()) {
+            size_t datas_num = s.m_datas.size() - 1;
+            GAPI_DbgAssert(datas_num <= static_cast<size_t>(std::numeric_limits<GSerialized::data_tag_t>::max()));
+            GSerialized::data_tag_t tag = static_cast<GSerialized::data_tag_t>(datas_num);
+            s.m_const_datas.emplace(tag,
+                                    cg.metadata(nh).get<gimpl::ConstValue>());
+        }
     }
 }
 
@@ -42,11 +50,20 @@ void putOp(GSerialized& s, const cv::gimpl::GModel::ConstGraph& cg, const ade::N
     s.m_ops.push_back(op);
 }
 
-void mkDataNode(ade::Graph& g, const cv::gimpl::Data& data) {
+ade::NodeHandle mkDataNode(ade::Graph& g, const cv::gimpl::Data& data) {
     cv::gimpl::GModel::Graph gm(g);
     auto nh = gm.createNode();
     gm.metadata(nh).set(cv::gimpl::NodeType{cv::gimpl::NodeType::DATA});
     gm.metadata(nh).set(data);
+    return nh;
+}
+
+ade::NodeHandle mkConstDataNode(ade::Graph& g, const cv::gimpl::Data& data, const cv::gimpl::ConstValue& const_data) {
+    auto nh = mkDataNode(g, data);
+
+    cv::gimpl::GModel::Graph gm(g);
+    gm.metadata(nh).set(const_data);
+    return nh;
 }
 
 void mkOpNode(ade::Graph& g, const cv::gimpl::Op& op) {
@@ -71,7 +88,7 @@ void linkNodes(ade::Graph& g) {
     for (const auto& nh : g.nodes()) {
         if (gm.metadata(nh).get<cv::gimpl::NodeType>().t == cv::gimpl::NodeType::OP) {
             const auto& op = gm.metadata(nh).get<gimpl::Op>();
-            for (const auto& in : ade::util::indexed(op.args)) {
+            for (const auto in : ade::util::indexed(op.args)) {
                 const auto& arg = ade::util::value(in);
                 if (arg.kind == cv::detail::ArgKind::GOBJREF) {
                     const auto idx = ade::util::index(in);
@@ -82,9 +99,9 @@ void linkNodes(ade::Graph& g) {
                 }
             }
 
-            for (const auto& out : ade::util::indexed(op.outs)) {
-                const auto idx = ade::util::index(out);
-                const auto rc  = ade::util::value(out);
+            for (const auto out : ade::util::indexed(op.outs)) {
+                const auto  idx = ade::util::index(out);
+                const auto& rc  = ade::util::value(out);
                 const auto& out_nh = dataNodes.at(rc);
                 const auto& out_eh = g.link(nh, out_nh);
                 gm.metadata(out_eh).set(cv::gimpl::Output{idx});
@@ -94,13 +111,14 @@ void linkNodes(ade::Graph& g) {
 }
 
 void relinkProto(ade::Graph& g) {
+    using namespace cv::gimpl;
     // identify which node handles map to the protocol
     // input/output object in the reconstructed graph
-    using S = std::set<cv::gimpl::RcDesc>;                  // FIXME: use ...
-    using M = std::map<cv::gimpl::RcDesc, ade::NodeHandle>; // FIXME: unordered!
+    using S = std::set<RcDesc>;                  // FIXME: use ...
+    using M = std::map<RcDesc, ade::NodeHandle>; // FIXME: unordered!
 
-    cv::gimpl::GModel::Graph gm(g);
-    auto &proto = gm.metadata().get<cv::gimpl::Protocol>();
+    GModel::Graph gm(g);
+    auto &proto = gm.metadata().get<Protocol>();
 
     const S set_in(proto.inputs.begin(), proto.inputs.end());
     const S set_out(proto.outputs.begin(), proto.outputs.end());
@@ -108,9 +126,9 @@ void relinkProto(ade::Graph& g) {
 
     // Associate the protocol node handles with their resource identifiers
     for (auto &&nh : gm.nodes()) {
-        if (gm.metadata(nh).get<cv::gimpl::NodeType>().t == cv::gimpl::NodeType::DATA) {
-            const auto &d = gm.metadata(nh).get<cv::gimpl::Data>();
-            const auto rc = cv::gimpl::RcDesc{d.rc, d.shape, d.ctor};
+        if (gm.metadata(nh).get<NodeType>().t == NodeType::DATA) {
+            const auto &d = gm.metadata(nh).get<Data>();
+            const auto rc = RcDesc{d.rc, d.shape, d.ctor};
             if (set_in.count(rc) > 0) {
                 GAPI_DbgAssert(set_out.count(rc) == 0);
                 map_in[rc] = nh;
@@ -128,6 +146,12 @@ void relinkProto(ade::Graph& g) {
     proto.out_nhs.clear();
     for (auto &rc : proto.inputs)  { proto.in_nhs .push_back(map_in .at(rc)); }
     for (auto &rc : proto.outputs) { proto.out_nhs.push_back(map_out.at(rc)); }
+
+    // If a subgraph is being serialized it's possible that
+    // some of its in/out nodes are INTERNAL in the full graph.
+    // Set their storage apporpriately
+    for (auto &nh : proto.in_nhs)  { gm.metadata(nh).get<Data>().storage = Data::Storage::INPUT; }
+    for (auto &nh : proto.out_nhs) { gm.metadata(nh).get<Data>().storage = Data::Storage::OUTPUT; }
 }
 
 } // anonymous namespace
@@ -142,6 +166,13 @@ IOStream& operator<< (IOStream& os, const cv::Point &pt) {
     return os << pt.x << pt.y;
 }
 IIStream& operator>> (IIStream& is, cv::Point& pt) {
+    return is >> pt.x >> pt.y;
+}
+
+IOStream& operator<< (IOStream& os, const cv::Point2f &pt) {
+    return os << pt.x << pt.y;
+}
+IIStream& operator>> (IIStream& is, cv::Point2f& pt) {
     return is >> pt.x >> pt.y;
 }
 
@@ -164,6 +195,27 @@ IOStream& operator<< (IOStream& os, const cv::Scalar &s) {
 }
 IIStream& operator>> (IIStream& is, cv::Scalar& s) {
     return is >> s.val[0] >> s.val[1] >> s.val[2] >> s.val[3];
+}
+IOStream& operator<< (IOStream& os, const cv::RMat& mat) {
+    mat.serialize(os);
+    return os;
+}
+IIStream& operator>> (IIStream& is, cv::RMat&) {
+    util::throw_error(std::logic_error("operator>> for RMat should never be called. "
+                                        "Instead, cv::gapi::deserialize<cv::GRunArgs, AdapterTypes...>() "
+                                        "should be used"));
+    return is;
+}
+
+IOStream& operator<< (IOStream& os, const cv::MediaFrame &frame) {
+    frame.serialize(os);
+    return os;
+}
+IIStream& operator>> (IIStream& is, cv::MediaFrame &) {
+    util::throw_error(std::logic_error("operator>> for MediaFrame should never be called. "
+                                        "Instead, cv::gapi::deserialize<cv::GRunArgs, AdapterTypes...>() "
+                                        "should be used"));
+    return is;
 }
 
 namespace
@@ -309,6 +361,18 @@ IIStream& operator>> (IIStream& is,       cv::gapi::wip::draw::Line &l) {
 }
 
 // G-API types /////////////////////////////////////////////////////////////////
+
+IOStream& operator<< (IOStream& os, const cv::GCompileArg& arg)
+{
+    ByteMemoryOutStream tmpS;
+    arg.serialize(tmpS);
+    std::vector<char> data = tmpS.data();
+
+    os << arg.tag;
+    os << data;
+
+    return os;
+}
 
 // Stubs (empty types)
 
@@ -478,17 +542,17 @@ IOStream& operator<< (IOStream& os, const cv::GArg &arg) {
         GAPI_Assert(arg.kind == cv::detail::ArgKind::OPAQUE_VAL);
         GAPI_Assert(arg.opaque_kind != cv::detail::OpaqueKind::CV_UNKNOWN);
         switch (arg.opaque_kind) {
-        case cv::detail::OpaqueKind::CV_BOOL:   os << arg.get<bool>();         break;
-        case cv::detail::OpaqueKind::CV_INT:    os << arg.get<int>();          break;
-        case cv::detail::OpaqueKind::CV_UINT64: os << arg.get<uint64_t>();     break;
-        case cv::detail::OpaqueKind::CV_DOUBLE: os << arg.get<double>();       break;
-        case cv::detail::OpaqueKind::CV_FLOAT:  os << arg.get<float>();        break;
-        case cv::detail::OpaqueKind::CV_STRING: os << arg.get<std::string>();  break;
-        case cv::detail::OpaqueKind::CV_POINT:  os << arg.get<cv::Point>();    break;
-        case cv::detail::OpaqueKind::CV_SIZE:   os << arg.get<cv::Size>();     break;
-        case cv::detail::OpaqueKind::CV_RECT:   os << arg.get<cv::Rect>();     break;
-        case cv::detail::OpaqueKind::CV_SCALAR: os << arg.get<cv::Scalar>();   break;
-        case cv::detail::OpaqueKind::CV_MAT:    os << arg.get<cv::Mat>();      break;
+        case cv::detail::OpaqueKind::CV_BOOL:    os << arg.get<bool>();         break;
+        case cv::detail::OpaqueKind::CV_INT:     os << arg.get<int>();          break;
+        case cv::detail::OpaqueKind::CV_UINT64:  os << arg.get<uint64_t>();     break;
+        case cv::detail::OpaqueKind::CV_DOUBLE:  os << arg.get<double>();       break;
+        case cv::detail::OpaqueKind::CV_FLOAT:   os << arg.get<float>();        break;
+        case cv::detail::OpaqueKind::CV_STRING:  os << arg.get<std::string>();  break;
+        case cv::detail::OpaqueKind::CV_POINT:   os << arg.get<cv::Point>();    break;
+        case cv::detail::OpaqueKind::CV_SIZE:    os << arg.get<cv::Size>();     break;
+        case cv::detail::OpaqueKind::CV_RECT:    os << arg.get<cv::Rect>();     break;
+        case cv::detail::OpaqueKind::CV_SCALAR:  os << arg.get<cv::Scalar>();   break;
+        case cv::detail::OpaqueKind::CV_MAT:     os << arg.get<cv::Mat>();      break;
         default: GAPI_Assert(false && "GArg: Unsupported (unknown?) opaque value type");
         }
     }
@@ -512,17 +576,18 @@ IIStream& operator>> (IIStream& is, cv::GArg &arg) {
         switch (arg.opaque_kind) {
 #define HANDLE_CASE(E,T) case cv::detail::OpaqueKind::CV_##E:           \
             { T t{}; is >> t; arg = (cv::GArg(t)); } break
-            HANDLE_CASE(BOOL   , bool);
-            HANDLE_CASE(INT    , int);
-            HANDLE_CASE(UINT64 , uint64_t);
-            HANDLE_CASE(DOUBLE , double);
-            HANDLE_CASE(FLOAT  , float);
-            HANDLE_CASE(STRING , std::string);
-            HANDLE_CASE(POINT  , cv::Point);
-            HANDLE_CASE(SIZE   , cv::Size);
-            HANDLE_CASE(RECT   , cv::Rect);
-            HANDLE_CASE(SCALAR , cv::Scalar);
-            HANDLE_CASE(MAT    , cv::Mat);
+            HANDLE_CASE(BOOL    , bool);
+            HANDLE_CASE(INT     , int);
+            HANDLE_CASE(UINT64  , uint64_t);
+            HANDLE_CASE(DOUBLE  , double);
+            HANDLE_CASE(FLOAT   , float);
+            HANDLE_CASE(STRING  , std::string);
+            HANDLE_CASE(POINT   , cv::Point);
+            HANDLE_CASE(POINT2F , cv::Point2f);
+            HANDLE_CASE(SIZE    , cv::Size);
+            HANDLE_CASE(RECT    , cv::Rect);
+            HANDLE_CASE(SCALAR  , cv::Scalar);
+            HANDLE_CASE(MAT     , cv::Mat);
 #undef HANDLE_CASE
         default: GAPI_Assert(false && "GArg: Unsupported (unknown?) opaque value type");
         }
@@ -547,6 +612,12 @@ IIStream& operator>> (IIStream& is, cv::GMatDesc &d) {
     return is >> d.depth >> d.chan >> d.size >> d.planar >> d.dims;
 }
 
+IOStream& operator<< (IOStream& os, const cv::GFrameDesc &d) {
+    return put_enum(os, d.fmt) << d.size;
+}
+IIStream& operator>> (IIStream& is,       cv::GFrameDesc &d) {
+    return get_enum(is, d.fmt) >> d.size;
+}
 
 IOStream& operator<< (IOStream& os, const cv::gimpl::RcDesc &rc) {
     // FIXME: HostCtor is not serialized!
@@ -570,6 +641,10 @@ IOStream& operator<< (IOStream& os, const cv::gimpl::Data &d) {
     // FIXME: HostCtor is not stored here!!
     // FIXME: Storage may be incorrect for subgraph-to-graph process
     return os << d.shape << d.rc << d.meta << d.storage << d.kind;
+}
+
+IOStream& operator<< (IOStream& os, const cv::gimpl::ConstValue &cd) {
+    return os << cd.arg;
 }
 
 namespace
@@ -615,6 +690,9 @@ IIStream& operator>> (IIStream& is, cv::gimpl::Data &d) {
     return is;
 }
 
+IIStream& operator>> (IIStream& is, cv::gimpl::ConstValue &cd) {
+    return is >> cd.arg;
+}
 
 IOStream& operator<< (IOStream& os, const cv::gimpl::DataObjectCounter &c) {
     return os << c.m_next_data_id;
@@ -657,18 +735,34 @@ void serialize( IOStream& os
     }
     s.m_counter = cg.metadata().get<cv::gimpl::DataObjectCounter>();
     s.m_proto   = p;
-    os << s.m_ops << s.m_datas << s.m_counter << s.m_proto;
+    os << s.m_ops << s.m_datas << s.m_counter << s.m_proto << s.m_const_datas;
 }
 
 GSerialized deserialize(IIStream &is) {
     GSerialized s;
-    is >> s.m_ops >> s.m_datas >> s.m_counter >> s.m_proto;
+    is >> s.m_ops >> s.m_datas >> s.m_counter >> s.m_proto >> s.m_const_datas;
     return s;
 }
 
 void reconstruct(const GSerialized &s, ade::Graph &g) {
     GAPI_Assert(g.nodes().empty());
-    for (const auto& d  : s.m_datas) cv::gapi::s11n::mkDataNode(g, d);
+
+    GSerialized::data_tag_t tag = 0;
+    for (const auto& d  : s.m_datas) {
+        if (d.storage == gimpl::Data::Storage::CONST_VAL) {
+            auto cit = s.m_const_datas.find(tag);
+            if (cit == s.m_const_datas.end()) {
+                util::throw_error(std::logic_error("Cannot reconstruct graph: Data::Storage::CONST_VAL by tag: " +
+                                  std::to_string(tag) + " requires ConstValue"));
+            }
+
+            mkConstDataNode(g, d, cit->second);
+        } else {
+            cv::gapi::s11n::mkDataNode(g, d);
+        }
+
+        tag ++;
+    }
     for (const auto& op : s.m_ops)   cv::gapi::s11n::mkOpNode(g, op);
     cv::gapi::s11n::linkNodes(g);
 
@@ -840,11 +934,22 @@ IIStream& ByteMemoryInStream::operator>> (std::string& str) {
     return *this;
 }
 
+GAPI_EXPORTS std::unique_ptr<IIStream> detail::getInStream(const std::vector<char> &p) {
+    return std::unique_ptr<ByteMemoryInStream>(new ByteMemoryInStream(p));
+}
+
+GAPI_EXPORTS void serialize(IOStream& os, const cv::GCompileArgs &ca) {
+    os << ca;
+}
+
 GAPI_EXPORTS void serialize(IOStream& os, const cv::GMetaArgs &ma) {
     os << ma;
 }
 GAPI_EXPORTS void serialize(IOStream& os, const cv::GRunArgs &ra) {
     os << ra;
+}
+GAPI_EXPORTS void serialize(IOStream& os, const std::vector<std::string> &vs) {
+    os << vs;
 }
 GAPI_EXPORTS GMetaArgs meta_args_deserialize(IIStream& is) {
     GMetaArgs s;
@@ -856,7 +961,11 @@ GAPI_EXPORTS GRunArgs run_args_deserialize(IIStream& is) {
     is >> s;
     return s;
 }
-
+GAPI_EXPORTS std::vector<std::string> vector_of_strings_deserialize(IIStream& is) {
+    std::vector<std::string> s;
+    is >> s;
+    return s;
+}
 
 } // namespace s11n
 } // namespace gapi

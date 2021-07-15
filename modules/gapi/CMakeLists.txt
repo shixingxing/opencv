@@ -23,7 +23,7 @@ ocv_add_module(gapi
     REQUIRED
       opencv_imgproc
     OPTIONAL
-      opencv_video
+      opencv_video opencv_calib3d
     WRAP
       python
 )
@@ -49,13 +49,16 @@ file(GLOB gapi_ext_hdrs
     "${CMAKE_CURRENT_LIST_DIR}/include/opencv2/${name}/ocl/*.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/include/opencv2/${name}/own/*.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/include/opencv2/${name}/render/*.hpp"
+    "${CMAKE_CURRENT_LIST_DIR}/include/opencv2/${name}/s11n/*.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/include/opencv2/${name}/streaming/*.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/include/opencv2/${name}/plaidml/*.hpp"
     "${CMAKE_CURRENT_LIST_DIR}/include/opencv2/${name}/util/*.hpp"
+    "${CMAKE_CURRENT_LIST_DIR}/include/opencv2/${name}/python/*.hpp"
     )
 
 set(gapi_srcs
     # Front-end part
+    src/api/grunarg.cpp
     src/api/gorigin.cpp
     src/api/gmat.cpp
     src/api/garray.cpp
@@ -73,11 +76,13 @@ set(gapi_srcs
     src/api/kernels_imgproc.cpp
     src/api/kernels_video.cpp
     src/api/kernels_nnparsers.cpp
+    src/api/kernels_streaming.cpp
+    src/api/kernels_stereo.cpp
     src/api/render.cpp
     src/api/render_ocv.cpp
     src/api/ginfer.cpp
-    src/api/ft_render.cpp
     src/api/media.cpp
+    src/api/rmat.cpp
 
     # Compiler part
     src/compiler/gmodel.cpp
@@ -96,9 +101,11 @@ set(gapi_srcs
     src/compiler/passes/pattern_matching.cpp
     src/compiler/passes/perform_substitution.cpp
     src/compiler/passes/streaming.cpp
+    src/compiler/passes/intrin.cpp
 
     # Executor
     src/executor/gexecutor.cpp
+    src/executor/gtbbexecutor.cpp
     src/executor/gstreamingexecutor.cpp
     src/executor/gasync.cpp
 
@@ -106,6 +113,7 @@ set(gapi_srcs
     src/backends/cpu/gcpubackend.cpp
     src/backends/cpu/gcpukernel.cpp
     src/backends/cpu/gcpuimgproc.cpp
+    src/backends/cpu/gcpustereo.cpp
     src/backends/cpu/gcpuvideo.cpp
     src/backends/cpu/gcpucore.cpp
     src/backends/cpu/gnnparsers.cpp
@@ -128,21 +136,35 @@ set(gapi_srcs
     src/backends/ie/giebackend.cpp
     src/backends/ie/giebackend/giewrapper.cpp
 
-    # Render Backend.
-    src/backends/render/grenderocvbackend.cpp
-    src/backends/render/grenderocv.cpp
+    # ONNX backend
+    src/backends/onnx/gonnxbackend.cpp
 
-    #PlaidML Backend
+    # Render backend
+    src/backends/render/grenderocv.cpp
+    src/backends/render/ft_render.cpp
+
+    # PlaidML Backend
     src/backends/plaidml/gplaidmlcore.cpp
     src/backends/plaidml/gplaidmlbackend.cpp
 
-    # Compound
+    # Common backend code
+    src/backends/common/gmetabackend.cpp
     src/backends/common/gcompoundbackend.cpp
     src/backends/common/gcompoundkernel.cpp
 
     # Serialization API and routines
     src/api/s11n.cpp
     src/backends/common/serialization.cpp
+
+    # Streaming backend
+    src/backends/streaming/gstreamingbackend.cpp
+
+    # Python bridge
+    src/backends/ie/bindings_ie.cpp
+    src/backends/python/gpythonbackend.cpp
+
+    # Utils (ITT tracing)
+    src/utils/itt.cpp
     )
 
 ocv_add_dispatched_file(backends/fluid/gfluidimgproc_func SSE4_1 AVX2)
@@ -159,11 +181,20 @@ ocv_module_include_directories("${CMAKE_CURRENT_LIST_DIR}/src")
 ocv_create_module()
 
 ocv_target_link_libraries(${the_module} PRIVATE ade)
+
 if(OPENCV_GAPI_INF_ENGINE)
   ocv_target_link_libraries(${the_module} PRIVATE ${INF_ENGINE_TARGET})
 endif()
+
 if(HAVE_TBB)
   ocv_target_link_libraries(${the_module} PRIVATE tbb)
+endif()
+
+# TODO: Consider support of ITT in G-API standalone mode.
+if(CV_TRACE AND HAVE_ITT)
+  ocv_target_compile_definitions(${the_module} PRIVATE -DOPENCV_WITH_ITT=1)
+  ocv_module_include_directories(${ITT_INCLUDE_DIRS})
+  ocv_target_link_libraries(${the_module} PRIVATE ${ITT_LIBRARIES})
 endif()
 
 set(__test_extra_deps "")
@@ -179,6 +210,10 @@ ocv_add_accuracy_tests(${__test_extra_deps})
 if(TARGET opencv_test_gapi)
   target_include_directories(opencv_test_gapi PRIVATE "${CMAKE_CURRENT_LIST_DIR}/src")
   target_link_libraries(opencv_test_gapi PRIVATE ade)
+endif()
+
+if(HAVE_TBB AND TARGET opencv_test_gapi)
+  ocv_target_link_libraries(opencv_test_gapi PRIVATE tbb)
 endif()
 
 if(HAVE_FREETYPE)
@@ -199,9 +234,19 @@ if(HAVE_PLAIDML)
   ocv_target_include_directories(${the_module} SYSTEM PRIVATE ${PLAIDML_INCLUDE_DIRS})
 endif()
 
+
 if(WIN32)
   # Required for htonl/ntohl on Windows
   ocv_target_link_libraries(${the_module} PRIVATE wsock32 ws2_32)
+endif()
+
+if(HAVE_ONNX)
+  ocv_target_link_libraries(${the_module} PRIVATE ${ONNX_LIBRARY})
+  ocv_target_compile_definitions(${the_module} PRIVATE HAVE_ONNX=1)
+  if(TARGET opencv_test_gapi)
+    ocv_target_compile_definitions(opencv_test_gapi PRIVATE HAVE_ONNX=1)
+    ocv_target_link_libraries(opencv_test_gapi PRIVATE ${ONNX_LIBRARY})
+  endif()
 endif()
 
 ocv_add_perf_tests()

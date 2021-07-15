@@ -53,6 +53,8 @@
 #include <opencv2/core/utils/tls.hpp>
 #include <opencv2/core/utils/instrumentation.hpp>
 
+#include <opencv2/core/utils/filesystem.private.hpp>
+
 namespace cv {
 
 static void _initSystem()
@@ -128,10 +130,13 @@ void* allocSingletonNewBuffer(size_t size) { return malloc(size); }
 #endif
 
 
-#if CV_VSX && defined __linux__
+#if (defined __ppc64__ || defined __PPC64__) && defined __linux__
 # include "sys/auxv.h"
 # ifndef AT_HWCAP2
 #   define AT_HWCAP2 26
+# endif
+# ifndef PPC_FEATURE2_ARCH_2_07
+#   define PPC_FEATURE2_ARCH_2_07 0x80000000
 # endif
 # ifndef PPC_FEATURE2_ARCH_3_00
 #   define PPC_FEATURE2_ARCH_3_00 0x00800000
@@ -211,7 +216,9 @@ std::wstring GetTempFileNameWinRT(std::wstring prefix)
 
 #endif
 #else
+#ifndef OPENCV_DISABLE_THREAD_SUPPORT
 #include <pthread.h>
+#endif
 #include <sys/time.h>
 #include <time.h>
 
@@ -345,7 +352,6 @@ struct HWFeatures
 
     HWFeatures(bool run_initialize = false)
     {
-        memset( have, 0, sizeof(have[0]) * MAX_FEATURE );
         if (run_initialize)
             initialize();
     }
@@ -391,6 +397,7 @@ struct HWFeatures
         g_hwFeatureNames[CPU_VSX3] = "VSX3";
 
         g_hwFeatureNames[CPU_MSA] = "CPU_MSA";
+        g_hwFeatureNames[CPU_RISCVV] = "RISCVV";
 
         g_hwFeatureNames[CPU_AVX512_COMMON] = "AVX512-COMMON";
         g_hwFeatureNames[CPU_AVX512_SKX] = "AVX512-SKX";
@@ -586,17 +593,31 @@ struct HWFeatures
     #if defined _ARM_ && (defined(_WIN32_WCE) && _WIN32_WCE >= 0x800)
         have[CV_CPU_NEON] = true;
     #endif
+    #ifdef __riscv_vector
+        have[CV_CPU_RISCVV] = true;
+    #endif
     #ifdef __mips_msa
         have[CV_CPU_MSA] = true;
     #endif
-    // there's no need to check VSX availability in runtime since it's always available on ppc64le CPUs
-    have[CV_CPU_VSX] = (CV_VSX);
-    // TODO: Check VSX3 availability in runtime for other platforms
-    #if CV_VSX && defined __linux__
-        uint64 hwcap2 = getauxval(AT_HWCAP2);
-        have[CV_CPU_VSX3] = (hwcap2 & PPC_FEATURE2_ARCH_3_00);
+
+    #if (defined __ppc64__ || defined __PPC64__) && defined __linux__
+        unsigned int hwcap = getauxval(AT_HWCAP);
+        if (hwcap & PPC_FEATURE_HAS_VSX) {
+            hwcap = getauxval(AT_HWCAP2);
+            if (hwcap & PPC_FEATURE2_ARCH_3_00) {
+                have[CV_CPU_VSX] = have[CV_CPU_VSX3] = true;
+            } else {
+                have[CV_CPU_VSX] = (hwcap & PPC_FEATURE2_ARCH_2_07) != 0;
+            }
+        }
     #else
-        have[CV_CPU_VSX3] = (CV_VSX3);
+        // TODO: AIX, FreeBSD
+        #if CV_VSX || defined _ARCH_PWR8 || defined __POWER9_VECTOR__
+            have[CV_CPU_VSX] = true;
+        #endif
+        #if CV_VSX3 || defined __POWER9_VECTOR__
+            have[CV_CPU_VSX3] = true;
+        #endif
     #endif
 
     #if defined __riscv && defined __riscv_vector
@@ -730,7 +751,7 @@ struct HWFeatures
         }
     }
 
-    bool have[MAX_FEATURE+1];
+    bool have[MAX_FEATURE+1]{};
 };
 
 static HWFeatures  featuresEnabled(true), featuresDisabled = HWFeatures(false);
@@ -934,6 +955,7 @@ String format( const char* fmt, ... )
 
 String tempfile( const char* suffix )
 {
+#if OPENCV_HAVE_FILESYSTEM_SUPPORT
     String fname;
 #ifndef NO_GETENV
     const char *temp_dir = getenv("OPENCV_TEMP_PATH");
@@ -1020,6 +1042,10 @@ String tempfile( const char* suffix )
             return fname + suffix;
     }
     return fname;
+#else // OPENCV_HAVE_FILESYSTEM_SUPPORT
+    CV_UNUSED(suffix);
+    CV_Error(Error::StsNotImplemented, "File system support is disabled in this OpenCV build!");
+#endif // OPENCV_HAVE_FILESYSTEM_SUPPORT
 }
 
 static ErrorCallback customErrorCallback = 0;
@@ -1342,6 +1368,8 @@ bool __termination = false;
 
 namespace details {
 
+#ifndef OPENCV_DISABLE_THREAD_SUPPORT
+
 #ifdef _WIN32
 #ifdef _MSC_VER
 #pragma warning(disable:4505) // unreferenced local function has been removed
@@ -1507,6 +1535,9 @@ struct ThreadData
     size_t idx;               // Thread index in TLS storage. This is not OS thread ID!
 };
 
+
+static bool g_isTlsStorageInitialized = false;
+
 // Main TLS storage class
 class TlsStorage
 {
@@ -1516,6 +1547,7 @@ public:
     {
         tlsSlots.reserve(32);
         threads.reserve(32);
+        g_isTlsStorageInitialized = true;
     }
     ~TlsStorage()
     {
@@ -1720,19 +1752,153 @@ static TlsStorage &getTlsStorage()
 #ifndef _WIN32  // pthread key destructor
 static void opencv_tls_destructor(void* pData)
 {
+    if (!g_isTlsStorageInitialized)
+        return;  // nothing to release, so prefer to avoid creation of new global structures
     getTlsStorage().releaseThread(pData);
 }
 #else // _WIN32
 #ifdef CV_USE_FLS
 static void WINAPI opencv_fls_destructor(void* pData)
 {
+    // Empiric detection of ExitProcess call
+    DWORD code = STILL_ACTIVE/*259*/;
+    BOOL res = GetExitCodeProcess(GetCurrentProcess(), &code);
+    if (res && code != STILL_ACTIVE)
+    {
+        // Looks like we are in ExitProcess() call
+        // This is FLS specific only because their callback is called before DllMain.
+        // TLS doesn't have similar problem, DllMain() is called first which mark __termination properly.
+        // Note: this workaround conflicts with ExitProcess() steps order described in documentation, however it works:
+        // 3. ... called with DLL_PROCESS_DETACH
+        // 7. The termination status of the process changes from STILL_ACTIVE to the exit value of the process.
+        // (ref: https://docs.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-exitprocess)
+        cv::__termination = true;
+    }
+
+    if (!g_isTlsStorageInitialized)
+        return;  // nothing to release, so prefer to avoid creation of new global structures
     getTlsStorage().releaseThread(pData);
 }
 #endif // CV_USE_FLS
 #endif // _WIN32
 
+#else  // OPENCV_DISABLE_THREAD_SUPPORT
+
+// no threading (OPENCV_DISABLE_THREAD_SUPPORT=ON)
+class TlsStorage
+{
+public:
+    TlsStorage()
+    {
+        slots.reserve(32);
+    }
+    ~TlsStorage()
+    {
+        for (size_t slotIdx = 0; slotIdx < slots.size(); slotIdx++)
+        {
+            SlotInfo& s = slots[slotIdx];
+            TLSDataContainer* container = s.container;
+            if (container && s.data)
+            {
+                container->deleteDataInstance(s.data);  // Can't use from SlotInfo destructor
+                s.data = nullptr;
+            }
+        }
+    }
+
+    // Reserve TLS storage index
+    size_t reserveSlot(TLSDataContainer* container)
+    {
+        size_t slotsSize = slots.size();
+        for (size_t slot = 0; slot < slotsSize; slot++)
+        {
+            SlotInfo& s = slots[slot];
+            if (s.container == NULL)
+            {
+                CV_Assert(!s.data);
+                s.container = container;
+                return slot;
+            }
+        }
+
+        // create new slot
+        slots.push_back(SlotInfo(container));
+        return slotsSize;
+    }
+
+    // Release TLS storage index and pass associated data to caller
+    void releaseSlot(size_t slotIdx, std::vector<void*> &dataVec, bool keepSlot = false)
+    {
+        CV_Assert(slotIdx < slots.size());
+        SlotInfo& s = slots[slotIdx];
+        void* data = s.data;
+        if (data)
+        {
+            dataVec.push_back(data);
+            s.data = nullptr;
+        }
+        if (!keepSlot)
+        {
+            s.container = NULL;  // mark slot as free (see reserveSlot() implementation)
+        }
+    }
+
+    // Get data by TLS storage index
+    void* getData(size_t slotIdx) const
+    {
+        CV_Assert(slotIdx < slots.size());
+        const SlotInfo& s = slots[slotIdx];
+        return s.data;
+    }
+
+    // Gather data from threads by TLS storage index
+    void gather(size_t slotIdx, std::vector<void*> &dataVec)
+    {
+        CV_Assert(slotIdx < slots.size());
+        SlotInfo& s = slots[slotIdx];
+        void* data = s.data;
+        if (data)
+            dataVec.push_back(data);
+        return;
+    }
+
+    // Set data to storage index
+    void setData(size_t slotIdx, void* pData)
+    {
+        CV_Assert(slotIdx < slots.size());
+        SlotInfo& s = slots[slotIdx];
+        s.data = pData;
+    }
+
+private:
+    struct SlotInfo
+    {
+        SlotInfo(TLSDataContainer* _container) : container(_container), data(nullptr) {}
+        TLSDataContainer* container;  // attached container (to dispose data)
+        void* data;
+    };
+    std::vector<struct SlotInfo> slots;
+};
+
+static TlsStorage& getTlsStorage()
+{
+    static TlsStorage g_storage;  // no threading
+    return g_storage;
+}
+
+#endif  // OPENCV_DISABLE_THREAD_SUPPORT
+
 } // namespace details
 using namespace details;
+
+void releaseTlsStorageThread()
+{
+#ifndef OPENCV_DISABLE_THREAD_SUPPORT
+    if (!g_isTlsStorageInitialized)
+        return;  // nothing to release, so prefer to avoid creation of new global structures
+    getTlsStorage().releaseThread();
+#endif
+}
 
 TLSDataContainer::TLSDataContainer()
 {
@@ -1781,7 +1947,15 @@ void* TLSDataContainer::getData() const
     {
         // Create new data instance and save it to TLS storage
         pData = createDataInstance();
-        getTlsStorage().setData(key_, pData);
+        try
+        {
+            getTlsStorage().setData(key_, pData);
+        }
+        catch (...)
+        {
+            deleteDataInstance(pData);
+            throw;
+        }
     }
     return pData;
 }
@@ -1817,7 +1991,7 @@ BOOL WINAPI DllMain(HINSTANCE, DWORD fdwReason, LPVOID lpReserved)
         {
             // Not allowed to free resources if lpReserved is non-null
             // http://msdn.microsoft.com/en-us/library/windows/desktop/ms682583.aspx
-            cv::getTlsStorage().releaseThread();
+            releaseTlsStorageThread();
         }
     }
     return TRUE;
@@ -1862,7 +2036,7 @@ class ParseError
 {
     std::string bad_value;
 public:
-    ParseError(const std::string bad_value_) :bad_value(bad_value_) {}
+    ParseError(const std::string &bad_value_) :bad_value(bad_value_) {}
     std::string toString(const std::string &param) const
     {
         std::ostringstream out;
@@ -2365,6 +2539,13 @@ public:
             ippTopFeatures = ippCPUID_SSE42;
 
         pIppLibInfo = ippiGetLibVersion();
+
+        // workaround: https://github.com/opencv/opencv/issues/12959
+        std::string ippName(pIppLibInfo->Name ? pIppLibInfo->Name : "");
+        if (ippName.find("SSE4.2") != std::string::npos)
+        {
+            ippTopFeatures = ippCPUID_SSE42;
+        }
     }
 
 public:
@@ -2396,16 +2577,12 @@ unsigned long long getIppFeatures()
 #endif
 }
 
-unsigned long long getIppTopFeatures();
-
+#ifdef HAVE_IPP
 unsigned long long getIppTopFeatures()
 {
-#ifdef HAVE_IPP
     return getIPPSingleton().ippTopFeatures;
-#else
-    return 0;
-#endif
 }
+#endif
 
 void setIppStatus(int status, const char * const _funcname, const char * const _filename, int _line)
 {

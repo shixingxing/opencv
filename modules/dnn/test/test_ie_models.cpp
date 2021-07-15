@@ -307,6 +307,15 @@ TEST_P(DNNTestOpenVINO, models)
     ASSERT_FALSE(backendId != DNN_BACKEND_INFERENCE_ENGINE_NN_BUILDER_2019 && backendId != DNN_BACKEND_INFERENCE_ENGINE_NGRAPH) <<
         "Inference Engine backend is required";
 
+#if INF_ENGINE_VER_MAJOR_EQ(2021040000)
+    if (targetId == DNN_TARGET_MYRIAD && (
+            modelName == "person-detection-retail-0013" ||  // ncDeviceOpen:1013 Failed to find booted device after boot
+            modelName == "age-gender-recognition-retail-0013"  // ncDeviceOpen:1013 Failed to find booted device after boot
+        )
+    )
+        applyTestTag(CV_TEST_TAG_DNN_SKIP_IE_MYRIAD, CV_DNN_BACKEND_INFERENCE_ENGINE_NGRAPH, CV_TEST_TAG_DNN_SKIP_IE_VERSION);
+#endif
+
 #if INF_ENGINE_VER_MAJOR_GE(2020020000)
     if (targetId == DNN_TARGET_MYRIAD && backendId == DNN_BACKEND_INFERENCE_ENGINE_NN_BUILDER_2019)
     {
@@ -340,6 +349,8 @@ TEST_P(DNNTestOpenVINO, models)
     // Single Myriad device cannot be shared across multiple processes.
     if (targetId == DNN_TARGET_MYRIAD)
         resetMyriadDevice();
+    if (targetId == DNN_TARGET_HDDL)
+        releaseHDDLPlugin();
     EXPECT_NO_THROW(runIE(targetId, xmlPath, binPath, inputsMap, ieOutputsMap)) << "runIE";
     EXPECT_NO_THROW(runCV(backendId, targetId, xmlPath, binPath, inputsMap, cvOutputsMap)) << "runCV";
 

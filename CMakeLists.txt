@@ -17,9 +17,7 @@ endif()
 
 include(cmake/OpenCVMinDepVersions.cmake)
 
-if(CMAKE_GENERATOR MATCHES Xcode AND XCODE_VERSION VERSION_GREATER 4.3)
-  cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
-elseif(CMAKE_SYSTEM_NAME MATCHES WindowsPhone OR CMAKE_SYSTEM_NAME MATCHES WindowsStore)
+if(CMAKE_SYSTEM_NAME MATCHES WindowsPhone OR CMAKE_SYSTEM_NAME MATCHES WindowsStore)
   cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
   #Required to resolve linker error issues due to incompatibility with CMake v3.0+ policies.
   #CMake fails to find _fseeko() which leads to subsequent linker error.
@@ -215,7 +213,7 @@ OCV_OPTION(OPENCV_ENABLE_NONFREE "Enable non-free algorithms" OFF)
 OCV_OPTION(OPENCV_FORCE_3RDPARTY_BUILD   "Force using 3rdparty code from source" OFF)
 OCV_OPTION(BUILD_ZLIB               "Build zlib from source"             (WIN32 OR APPLE OR OPENCV_FORCE_3RDPARTY_BUILD) )
 OCV_OPTION(BUILD_TIFF               "Build libtiff from source"          (WIN32 OR ANDROID OR APPLE OR OPENCV_FORCE_3RDPARTY_BUILD) )
-OCV_OPTION(BUILD_OPENJPEG           "Build OpenJPEG from source"         (WIN32 OR ANDRIOD OR APPLE OR OPENCV_FORCE_3RDPARTY_BUILD) )
+OCV_OPTION(BUILD_OPENJPEG           "Build OpenJPEG from source"         (WIN32 OR ANDROID OR APPLE OR OPENCV_FORCE_3RDPARTY_BUILD) )
 OCV_OPTION(BUILD_JASPER             "Build libjasper from source"        (WIN32 OR ANDROID OR APPLE OR OPENCV_FORCE_3RDPARTY_BUILD) )
 OCV_OPTION(BUILD_JPEG               "Build libjpeg from source"          (WIN32 OR ANDROID OR APPLE OR OPENCV_FORCE_3RDPARTY_BUILD) )
 OCV_OPTION(BUILD_PNG                "Build libpng from source"           (WIN32 OR ANDROID OR APPLE OR OPENCV_FORCE_3RDPARTY_BUILD) )
@@ -240,7 +238,7 @@ OCV_OPTION(WITH_CAP_IOS "Enable iOS video capture" ON
   VISIBLE_IF IOS
   VERIFY HAVE_CAP_IOS)
 OCV_OPTION(WITH_CAROTENE "Use NVidia carotene acceleration library for ARM platform" ON
-  VISIBLE_IF (ARM OR AARCH64) AND NOT IOS AND NOT (CMAKE_VERSION VERSION_LESS "2.8.11"))
+  VISIBLE_IF (ARM OR AARCH64) AND NOT IOS)
 OCV_OPTION(WITH_CPUFEATURES "Use cpufeatures Android library" ON
   VISIBLE_IF ANDROID
   VERIFY HAVE_CPUFEATURES)
@@ -367,6 +365,9 @@ OCV_OPTION(WITH_MSMF_DXVA "Enable hardware acceleration in Media Foundation back
 OCV_OPTION(WITH_XIMEA "Include XIMEA cameras support" OFF
   VISIBLE_IF NOT ANDROID AND NOT WINRT
   VERIFY HAVE_XIMEA)
+OCV_OPTION(WITH_UEYE "Include UEYE camera support" OFF
+  VISIBLE_IF NOT ANDROID AND NOT APPLE AND NOT WINRT
+  VERIFY HAVE_UEYE)
 OCV_OPTION(WITH_XINE "Include Xine support (GPL)" OFF
   VISIBLE_IF UNIX AND NOT APPLE AND NOT ANDROID
   VERIFY HAVE_XINE)
@@ -394,11 +395,11 @@ OCV_OPTION(WITH_OPENCL_D3D11_NV "Include NVIDIA OpenCL D3D11 support" WITH_DIREC
 OCV_OPTION(WITH_LIBREALSENSE "Include Intel librealsense support" OFF
   VISIBLE_IF NOT WITH_INTELPERC
   VERIFY HAVE_LIBREALSENSE)
-OCV_OPTION(WITH_VA "Include VA support" OFF
-  VISIBLE_IF UNIX AND NOT ANDROID
+OCV_OPTION(WITH_VA "Include VA support" (X86_64 OR X86)
+  VISIBLE_IF UNIX AND NOT APPLE AND NOT ANDROID
   VERIFY HAVE_VA)
-OCV_OPTION(WITH_VA_INTEL "Include Intel VA-API/OpenCL support" OFF
-  VISIBLE_IF UNIX AND NOT ANDROID
+OCV_OPTION(WITH_VA_INTEL "Include Intel VA-API/OpenCL support" (X86_64 OR X86)
+  VISIBLE_IF UNIX AND NOT APPLE AND NOT ANDROID
   VERIFY HAVE_VA_INTEL)
 OCV_OPTION(WITH_MFX "Include Intel Media SDK support" OFF
   VISIBLE_IF (UNIX AND NOT ANDROID) OR (WIN32 AND NOT WINRT AND NOT MINGW)
@@ -436,9 +437,15 @@ OCV_OPTION(WITH_QUIRC "Include library QR-code decoding" ON
 OCV_OPTION(WITH_ANDROID_MEDIANDK "Use Android Media NDK for Video I/O (Android)" (ANDROID_NATIVE_API_LEVEL GREATER 20)
   VISIBLE_IF ANDROID
   VERIFY HAVE_ANDROID_MEDIANDK)
+OCV_OPTION(WITH_ANDROID_NATIVE_CAMERA "Use Android NDK for Camera I/O (Android)" (ANDROID_NATIVE_API_LEVEL GREATER 23)
+  VISIBLE_IF ANDROID
+  VERIFY HAVE_ANDROID_NATIVE_CAMERA)
 OCV_OPTION(WITH_TENGINE "Include Arm Inference Tengine support" OFF
   VISIBLE_IF (ARM OR AARCH64) AND (UNIX OR ANDROID) AND NOT IOS
   VERIFY HAVE_TENGINE)
+OCV_OPTION(WITH_ONNX "Include Microsoft ONNX Runtime support" OFF
+  VISIBLE_IF TRUE
+  VERIFY HAVE_ONNX)
 
 # OpenCV build components
 # ===================================================
@@ -460,6 +467,7 @@ OCV_OPTION(BUILD_ANDROID_SERVICE    "Build OpenCV Manager for Google Play" OFF I
 OCV_OPTION(BUILD_CUDA_STUBS         "Build CUDA modules stubs when no CUDA SDK" OFF  IF (NOT APPLE_FRAMEWORK) )
 OCV_OPTION(BUILD_JAVA               "Enable Java support"                         (ANDROID OR NOT CMAKE_CROSSCOMPILING)  IF (ANDROID OR (NOT APPLE_FRAMEWORK AND NOT WINRT)) )
 OCV_OPTION(BUILD_OBJC               "Enable Objective-C support"                  ON  IF APPLE_FRAMEWORK )
+OCV_OPTION(BUILD_KOTLIN_EXTENSIONS  "Build Kotlin extensions (Android)"           ON  IF ANDROID )
 
 # OpenCV installation options
 # ===================================================
@@ -473,7 +481,7 @@ OCV_OPTION(INSTALL_TESTS            "Install accuracy and performance test binar
 
 # OpenCV build options
 # ===================================================
-OCV_OPTION(ENABLE_CCACHE              "Use ccache"                                               (UNIX AND NOT IOS AND (CMAKE_GENERATOR MATCHES "Makefile" OR CMAKE_GENERATOR MATCHES "Ninja")) )
+OCV_OPTION(ENABLE_CCACHE              "Use ccache"                                               (UNIX AND (CMAKE_GENERATOR MATCHES "Makefile" OR CMAKE_GENERATOR MATCHES "Ninja" OR CMAKE_GENERATOR MATCHES "Xcode")) )
 OCV_OPTION(ENABLE_PRECOMPILED_HEADERS "Use precompiled headers"                                  MSVC IF (MSVC OR (NOT IOS AND NOT CMAKE_CROSSCOMPILING) ) )
 OCV_OPTION(ENABLE_SOLUTION_FOLDERS    "Solution folder in Visual Studio or in other IDEs"        (MSVC_IDE OR CMAKE_GENERATOR MATCHES Xcode) )
 OCV_OPTION(ENABLE_PROFILING           "Enable profiling in the GCC compiler (Add flags: -g -pg)" OFF  IF CV_GCC )
@@ -482,7 +490,7 @@ OCV_OPTION(OPENCV_ENABLE_MEMORY_SANITIZER "Better support for memory/address san
 OCV_OPTION(ENABLE_OMIT_FRAME_POINTER  "Enable -fomit-frame-pointer for GCC"                      ON   IF CV_GCC )
 OCV_OPTION(ENABLE_POWERPC             "Enable PowerPC for GCC"                                   ON   IF (CV_GCC AND CMAKE_SYSTEM_PROCESSOR MATCHES powerpc.*) )
 OCV_OPTION(ENABLE_FAST_MATH           "Enable compiler options for fast math optimizations on FP computations (not recommended)" OFF)
-if(NOT IOS AND (NOT ANDROID OR OPENCV_ANDROID_USE_LEGACY_FLAGS))  # Use CPU_BASELINE instead
+if(NOT IOS AND (NOT ANDROID OR OPENCV_ANDROID_USE_LEGACY_FLAGS) AND CMAKE_CROSSCOMPILING)  # Use CPU_BASELINE instead
 OCV_OPTION(ENABLE_NEON                "Enable NEON instructions"                                 (NEON OR ANDROID_ARM_NEON OR AARCH64) IF (CV_GCC OR CV_CLANG) AND (ARM OR AARCH64 OR IOS) )
 OCV_OPTION(ENABLE_VFPV3               "Enable VFPv3-D32 instructions"                            OFF  IF (CV_GCC OR CV_CLANG) AND (ARM OR AARCH64 OR IOS) )
 endif()
@@ -491,7 +499,7 @@ OCV_OPTION(OPENCV_WARNINGS_ARE_ERRORS "Treat warnings as errors"                
 OCV_OPTION(ANDROID_EXAMPLES_WITH_LIBS "Build binaries of Android examples with native libraries" OFF  IF ANDROID )
 OCV_OPTION(ENABLE_IMPL_COLLECTION     "Collect implementation data on function call"             OFF )
 OCV_OPTION(ENABLE_INSTRUMENTATION     "Instrument functions to collect calls trace and performance" OFF )
-OCV_OPTION(ENABLE_GNU_STL_DEBUG       "Enable GNU STL Debug mode (defines _GLIBCXX_DEBUG)"       OFF IF ((NOT CMAKE_VERSION VERSION_LESS "2.8.11") AND CV_GCC) )
+OCV_OPTION(ENABLE_GNU_STL_DEBUG       "Enable GNU STL Debug mode (defines _GLIBCXX_DEBUG)"       OFF IF CV_GCC )
 OCV_OPTION(ENABLE_BUILD_HARDENING     "Enable hardening of the resulting binaries (against security attacks, detects memory corruption, etc)" OFF)
 OCV_OPTION(ENABLE_LTO                 "Enable Link Time Optimization" OFF IF CV_GCC OR MSVC)
 OCV_OPTION(ENABLE_THIN_LTO            "Enable Thin LTO" OFF IF CV_CLANG)
@@ -503,12 +511,18 @@ OCV_OPTION(CV_TRACE                   "Enable OpenCV code trace" ON)
 OCV_OPTION(OPENCV_GENERATE_SETUPVARS  "Generate setup_vars* scripts" ON IF (NOT ANDROID AND NOT APPLE_FRAMEWORK) )
 OCV_OPTION(ENABLE_CONFIG_VERIFICATION "Fail build if actual configuration doesn't match requested (WITH_XXX != HAVE_XXX)" OFF)
 OCV_OPTION(OPENCV_ENABLE_MEMALIGN     "Enable posix_memalign or memalign usage" ON)
+OCV_OPTION(OPENCV_DISABLE_FILESYSTEM_SUPPORT "Disable filesystem support" OFF)
+OCV_OPTION(OPENCV_DISABLE_THREAD_SUPPORT "Build the library without multi-threaded code." OFF)
 
 OCV_OPTION(ENABLE_PYLINT              "Add target with Pylint checks"                            (BUILD_DOCS OR BUILD_EXAMPLES) IF (NOT CMAKE_CROSSCOMPILING AND NOT APPLE_FRAMEWORK) )
 OCV_OPTION(ENABLE_FLAKE8              "Add target with Python flake8 checker"                    (BUILD_DOCS OR BUILD_EXAMPLES) IF (NOT CMAKE_CROSSCOMPILING AND NOT APPLE_FRAMEWORK) )
 
 if(ENABLE_IMPL_COLLECTION)
   add_definitions(-DCV_COLLECT_IMPL_DATA)
+endif()
+
+if(OPENCV_DISABLE_FILESYSTEM_SUPPORT)
+  add_definitions(-DOPENCV_HAVE_FILESYSTEM_SUPPORT=0)
 endif()
 
 set(OPENCV_MATHJAX_RELPATH "https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.0" CACHE STRING "URI to a MathJax installation")
@@ -644,11 +658,18 @@ if(UNIX)
       set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} m pthread)
     elseif(EMSCRIPTEN)
       # no need to link to system libs with emscripten
+    elseif(QNXNTO)
+      # no need to link to system libs with QNX
     else()
       set(OPENCV_LINKER_LIBS ${OPENCV_LINKER_LIBS} dl m pthread rt)
     endif()
   else()
     set(HAVE_PTHREAD 1)
+  endif()
+
+  # Ensure that libpthread is not listed as one of the libraries to pass to the linker.
+  if (OPENCV_DISABLE_THREAD_SUPPORT)
+    list(REMOVE_ITEM OPENCV_LINKER_LIBS pthread)
   endif()
 
   if(OPENCV_ENABLE_MEMALIGN)
@@ -658,8 +679,17 @@ if(UNIX)
       CHECK_SYMBOL_EXISTS(memalign malloc.h HAVE_MEMALIGN)
     endif()
     # TODO:
-    # - _aligned_malloc() on Win32
     # - std::aligned_alloc() C++17 / C11
+  endif()
+elseif(WIN32)
+  include(CheckIncludeFile)
+  include(CheckSymbolExists)
+
+  if(OPENCV_ENABLE_MEMALIGN)
+    CHECK_INCLUDE_FILE(malloc.h HAVE_MALLOC_H)
+    if(HAVE_MALLOC_H)
+      CHECK_SYMBOL_EXISTS(_aligned_malloc malloc.h HAVE_WIN32_ALIGNED_MALLOC)
+    endif()
   endif()
 endif()
 
@@ -723,8 +753,15 @@ if(ENABLE_FLAKE8 AND PYTHON_DEFAULT_AVAILABLE)
     include("${CMAKE_CURRENT_LIST_DIR}/cmake/FindFlake8.cmake")
   endif()
   if(FLAKE8_FOUND)
+    list(APPEND OPENCV_FLAKE8_EXCLUDES ".git" "__pycache__" "config.py" "*.config.py" "config-*.py")
+    list(APPEND OPENCV_FLAKE8_EXCLUDES "svgfig.py")  # 3rdparty
+    if(NOT PYTHON3_VERSION_STRING VERSION_GREATER 3.6)
+      # Python 3.6+ (PEP 526): variable annotations (type hints)
+      list(APPEND OPENCV_FLAKE8_EXCLUDES "samples/dnn/dnn_model_runner/dnn_conversion/common/test/configs")
+    endif()
+    string(REPLACE ";" "," OPENCV_FLAKE8_EXCLUDES_STR "${OPENCV_FLAKE8_EXCLUDES}")
     add_custom_target(check_flake8
-        COMMAND "${FLAKE8_EXECUTABLE}" . --count --select=E9,E901,E999,F821,F822,F823 --show-source --statistics --exclude='.git,__pycache__,*.config.py,svgfig.py'
+        COMMAND "${FLAKE8_EXECUTABLE}" . --count --select=E9,E901,E999,F821,F822,F823 --show-source --statistics --exclude='${OPENCV_FLAKE8_EXCLUDES_STR}'
         WORKING_DIRECTORY "${OpenCV_SOURCE_DIR}"
         COMMENT "Running flake8"
     )
@@ -775,6 +812,11 @@ if(WITH_QUIRC)
   add_subdirectory(3rdparty/quirc)
   set(HAVE_QUIRC TRUE)
 endif()
+
+if(WITH_ONNX)
+  include(cmake/FindONNX.cmake)
+endif()
+
 # ----------------------------------------------------------------------------
 # OpenCV HAL
 # ----------------------------------------------------------------------------
@@ -971,6 +1013,12 @@ if(COMMAND ocv_pylint_finalize)
   ocv_pylint_add_directory_recurse(${CMAKE_CURRENT_LIST_DIR}/samples/python/tutorial_code)
   ocv_pylint_finalize()
 endif()
+if(TARGET check_pylint)
+  message(STATUS "Registered 'check_pylint' target: using ${PYLINT_EXECUTABLE} (ver: ${PYLINT_VERSION}), checks: ${PYLINT_TOTAL_TARGETS}")
+endif()
+if(TARGET check_flake8)
+  message(STATUS "Registered 'check_flake8' target: using ${FLAKE8_EXECUTABLE} (ver: ${FLAKE8_VERSION})")
+endif()
 
 if(OPENCV_GENERATE_SETUPVARS)
   include(cmake/OpenCVGenSetupVars.cmake)
@@ -1007,7 +1055,6 @@ endif()
 status("")
 status("  Platform:")
 if(NOT DEFINED OPENCV_TIMESTAMP
-    AND NOT CMAKE_VERSION VERSION_LESS 2.8.11
     AND NOT BUILD_INFO_SKIP_TIMESTAMP
 )
   string(TIMESTAMP OPENCV_TIMESTAMP "" UTC)
@@ -1029,7 +1076,9 @@ endif()
 if(CMAKE_GENERATOR MATCHES Xcode)
   status("    Xcode:"          ${XCODE_VERSION})
 endif()
-if(NOT CMAKE_GENERATOR MATCHES "Xcode|Visual Studio")
+if(CMAKE_GENERATOR MATCHES "Xcode|Visual Studio|Multi-Config")
+  status("    Configuration:"  ${CMAKE_CONFIGURATION_TYPES})
+else()
   status("    Configuration:"  ${CMAKE_BUILD_TYPE})
 endif()
 
@@ -1089,6 +1138,10 @@ else()
 endif()
 status("    ccache:"                  OPENCV_COMPILER_IS_CCACHE THEN YES ELSE NO)
 status("    Precompiled headers:"     PCHSupport_FOUND AND ENABLE_PRECOMPILED_HEADERS THEN YES ELSE NO)
+
+if(OPENCV_DISABLE_FILESYSTEM_SUPPORT)
+  status("    Filesystem support is disabled")
+endif()
 
 # ========================== Dependencies ============================
 ocv_get_all_libs(deps_modules deps_extra deps_3rdparty)
@@ -1372,6 +1425,10 @@ if(WITH_XIMEA OR HAVE_XIMEA)
   status("    XIMEA:" HAVE_XIMEA THEN YES ELSE NO)
 endif()
 
+if(WITH_UEYE OR HAVE_UEYE)
+  status("    uEye:" HAVE_UEYE THEN YES ELSE NO)
+endif()
+
 if(WITH_XINE OR HAVE_XINE)
   status("    Xine:"           HAVE_XINE           THEN "YES (ver ${XINE_VERSION})"     ELSE NO)
 endif()
@@ -1381,7 +1438,16 @@ if(WITH_LIBREALSENSE OR HAVE_LIBREALSENSE)
 endif()
 
 if(WITH_MFX OR HAVE_MFX)
-  status("    Intel Media SDK:" HAVE_MFX      THEN "YES (${MFX_LIBRARY})" ELSE NO)
+  if(HAVE_MFX)
+    if(MFX_LIBRARY)
+      set(__details " (${MFX_LIBRARY})")
+    elseif(MFX_LIBRARIES)
+      set(__details " (${MFX_LIBRARIES})")
+    else()
+      set(__details " (unknown)")
+    endif()
+  endif()
+  status("    Intel Media SDK:" HAVE_MFX      THEN "YES${__details}" ELSE NO)
 endif()
 
 if(WITH_GPHOTO2 OR HAVE_GPHOTO2)
@@ -1399,6 +1465,15 @@ ocv_build_features_string(parallel_status EXCLUSIVE
   ELSE "none")
 status("")
 status("  Parallel framework:" "${parallel_status}")
+if (OPENCV_DISABLE_THREAD_SUPPORT)
+  status("" "Multi thread code explicitly disabled with OPENCV_DISABLE_THREAD_SUPPORT.")
+  if(HAVE_PTHREADS_PF OR HAVE_HPX OR HAVE_OPENMP OR HAVE_GCD OR HAVE_CONCURRENCY)
+    message(FATAL_ERROR "Not all parallel frameworks have been disabled (using ${parallel_status}).")
+  endif()
+  if(HAVE_PTHREAD)
+    message(FATAL_ERROR "Thread execution might be in use in some component.")
+  endif()
+endif()
 
 if(CV_TRACE OR OPENCV_TRACE)
   ocv_build_features_string(trace_status EXCLUSIVE
@@ -1556,6 +1631,15 @@ if(WITH_OPENCL OR HAVE_OPENCL)
   endif()
 endif()
 
+if(WITH_ONNX OR HAVE_ONNX)
+  status("")
+  status("  ONNX:"     HAVE_ONNX THEN "YES" ELSE "NO")
+  if(HAVE_ONNX)
+    status("    Include path:"  ONNX_INCLUDE_DIR THEN "${ONNX_INCLUDE_DIR}" ELSE "NO")
+    status("    Link libraries:" ONNX_LIBRARIES THEN "${ONNX_LIBRARIES}" ELSE "NO")
+  endif()
+endif()
+
 # ========================== python ==========================
 if(BUILD_opencv_python2)
   status("")
@@ -1585,12 +1669,6 @@ endif()
 
 status("")
 status("  Python (for build):"  PYTHON_DEFAULT_AVAILABLE THEN "${PYTHON_DEFAULT_EXECUTABLE}" ELSE NO)
-if(PYLINT_FOUND AND PYLINT_EXECUTABLE)
-  status("    Pylint:"  PYLINT_FOUND THEN "${PYLINT_EXECUTABLE} (ver: ${PYLINT_VERSION}, checks: ${PYLINT_TOTAL_TARGETS})" ELSE NO)
-endif()
-if(FLAKE8_FOUND AND FLAKE8_EXECUTABLE)
-  status("    Flake8:"  FLAKE8_FOUND THEN "${FLAKE8_EXECUTABLE} (ver: ${FLAKE8_VERSION})" ELSE NO)
-endif()
 
 # ========================== java ==========================
 if(BUILD_JAVA)
