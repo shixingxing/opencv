@@ -437,11 +437,18 @@ class CppHeaderParser(object):
         # filter off some common prefixes, which are meaningless for Python wrappers.
         # note that we do not strip "static" prefix, which does matter;
         # it means class methods, not instance methods
-        decl_str = self.batch_replace(decl_str, [("static inline", ""), ("inline", ""), ("explicit ", ""),
-                                                 ("CV_EXPORTS_W", ""), ("CV_EXPORTS", ""), ("CV_CDECL", ""),
-                                                 ("CV_WRAP ", " "), ("CV_INLINE", ""),
-                                                 ("CV_DEPRECATED", ""), ("CV_DEPRECATED_EXTERNAL", "")]).strip()
-
+        decl_str = self.batch_replace(decl_str, [("static inline", ""),
+                                                 ("inline", ""),
+                                                 ("explicit ", ""),
+                                                 ("CV_EXPORTS_W", ""),
+                                                 ("CV_EXPORTS", ""),
+                                                 ("CV_CDECL", ""),
+                                                 ("CV_WRAP ", " "),
+                                                 ("CV_INLINE", ""),
+                                                 ("CV_DEPRECATED", ""),
+                                                 ("CV_DEPRECATED_EXTERNAL", ""),
+                                                 ("CV_NODISCARD_STD", ""),
+                                                 ("CV_NODISCARD", "")]).strip()
 
         if decl_str.strip().startswith('virtual'):
             virtual_method = True
@@ -979,7 +986,8 @@ class CppHeaderParser(object):
                                 has_mat = len(list(filter(lambda x: x[0] in {"Mat", "vector_Mat"}, args))) > 0
                                 if has_mat:
                                     _, _, _, gpumat_decl = self.parse_stmt(stmt, token, mat="cuda::GpuMat", docstring=docstring)
-                                    decls.append(gpumat_decl)
+                                    if gpumat_decl != decl:
+                                        decls.append(gpumat_decl)
 
                             if self._generate_umat_decls:
                                 # If function takes as one of arguments Mat or vector<Mat> - we want to create the
@@ -988,7 +996,8 @@ class CppHeaderParser(object):
                                 has_mat = len(list(filter(lambda x: x[0] in {"Mat", "vector_Mat"}, args))) > 0
                                 if has_mat:
                                     _, _, _, umat_decl = self.parse_stmt(stmt, token, mat="UMat", docstring=docstring)
-                                    decls.append(umat_decl)
+                                    if umat_decl != decl:
+                                        decls.append(umat_decl)
 
                         docstring = ""
                     if stmt_type == "namespace":
