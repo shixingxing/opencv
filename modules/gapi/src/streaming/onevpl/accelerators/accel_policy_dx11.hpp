@@ -22,6 +22,7 @@
 #ifdef HAVE_DIRECTX
 #ifdef HAVE_D3D11
 #define D3D11_NO_HELPERS
+#define NOMINMAX
 #include <d3d11.h>
 #include <codecvt>
 #include "opencv2/core/directx.hpp"
@@ -32,6 +33,7 @@
 namespace cv {
 namespace gapi {
 namespace wip {
+namespace onevpl {
 
 // GAPI_EXPORTS for tests
 struct GAPI_EXPORTS VPLDX11AccelerationPolicy final: public VPLAccelerationPolicy
@@ -57,6 +59,7 @@ private:
     std::unique_ptr<VPLCPUAccelerationPolicy> adapter;
 #endif
 };
+} // namespace onevpl
 } // namespace wip
 } // namespace gapi
 } // namespace cv

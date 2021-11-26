@@ -15,24 +15,20 @@
 #ifdef HAVE_ONEVPL
 #include <vpl/mfxvideo.h>
 #include "streaming/onevpl/accelerators/accel_policy_interface.hpp"
-#ifdef TEST_PERF
 #include "streaming/onevpl/accelerators/surface/surface_pool.hpp"
-#endif // TEST_PERF
 
 namespace cv {
 namespace gapi {
 namespace wip {
+namespace onevpl {
 
 // GAPI_EXPORTS for tests
 struct GAPI_EXPORTS VPLCPUAccelerationPolicy final : public VPLAccelerationPolicy
 {
     VPLCPUAccelerationPolicy();
     ~VPLCPUAccelerationPolicy();
-#ifdef TEST_PERF
+
     using pool_t = CachedPool;
-#else  // TEST_PERF
-    using pool_t = std::vector<surface_ptr_t>;
-#endif // TEST_PERF
 
     void init(session_t session) override;
     void deinit(session_t session) override;
@@ -47,6 +43,7 @@ struct GAPI_EXPORTS VPLCPUAccelerationPolicy final : public VPLAccelerationPolic
 private:
     std::map<pool_key_t, pool_t> pool_table;
 };
+} // namespace onevpl
 } // namespace wip
 } // namespace gapi
 } // namespace cv
