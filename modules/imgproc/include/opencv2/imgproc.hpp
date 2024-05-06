@@ -3284,7 +3284,7 @@ images[0].channels() + images[1].channels()-1, and so on.
 size and depth as images[0] .
 @param ranges Array of arrays of the histogram bin boundaries in each dimension. See #calcHist .
 @param scale Optional scale factor for the output back projection.
-@param uniform Flag indicating whether the histogram is uniform or not (see above).
+@param uniform Flag indicating whether the histogram is uniform or not (see #calcHist).
 
 @sa calcHist, compareHist
  */
@@ -4029,16 +4029,6 @@ CV_EXPORTS_W void findContours( InputArray image, OutputArrayOfArrays contours,
 /** @overload */
 CV_EXPORTS void findContours( InputArray image, OutputArrayOfArrays contours,
                               int mode, int method, Point offset = Point());
-
-/** @example samples/cpp/squares.cpp
-A program using pyramid scaling, Canny, contours and contour simplification to find
-squares in a list of images (pic1-6.png). Returns sequence of squares detected on the image.
-*/
-
-/** @example samples/tapi/squares.cpp
-A program using pyramid scaling, Canny, contours and contour simplification to find
-squares in the input image.
-*/
 
 //! @brief Find contours using link runs algorithm
 //!

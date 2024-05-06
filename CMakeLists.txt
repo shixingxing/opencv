@@ -490,6 +490,9 @@ OCV_OPTION(WITH_CANN "Include CANN support" OFF
 OCV_OPTION(WITH_FLATBUFFERS "Include Flatbuffers support (required by DNN/TFLite importer)" ON
   VISIBLE_IF TRUE
   VERIFY HAVE_FLATBUFFERS)
+OCV_OPTION(WITH_ZLIB_NG "Use zlib-ng instead of zlib" OFF
+  VISIBLE_IF TRUE
+  VERIFY HAVE_ZLIB_NG)
 
 # OpenCV build components
 # ===================================================
@@ -1366,21 +1369,12 @@ status("")
 status("  GUI: " "${OPENCV_HIGHGUI_BUILTIN_BACKEND}")
 
 if(WITH_WAYLAND OR HAVE_WAYLAND)
-  if(HAVE_WAYLAND_CLIENT)
-    status("    Wayland Client:" "YES (ver ${WAYLAND_CLIENT_VERSION})")
-  endif()
-  if(HAVE_WAYLAND_CURSOR)
-    status("    Wayland Cursor:" "YES (ver ${WAYLAND_CURSOR_VERSION})")
-  endif()
-  if(HAVE_WAYLAND_PROTOCOL)
-    status("    Wayland Protocol:" "YES (ver ${WAYLAND_PROTOCOL_VERSION})")
-  endif()
-  if(HAVE_WAYLAND_EGL)
-    status("    Wayland EGL:" "YES (ver ${WAYLAND_EGL_VERSION})")
-  endif()
-  if(HAVE_XKBCOMMON)
-    status("    Xkbcommon:" "YES (ver ${XKBCOMMON_VERSION})")
-  endif()
+  status("    Wayland:" HAVE_WAYLAND THEN "(Experimental) YES" ELSE "NO")
+  status("      Wayland Client:" HAVE_WAYLAND_CLIENT THEN "YES (ver ${WAYLAND_CLIENT_VERSION})" ELSE "NO")
+  status("      Wayland Cursor:" HAVE_WAYLAND_CURSOR THEN "YES (ver ${WAYLAND_CURSOR_VERSION})" ELSE "NO")
+  status("      Wayland Protocols:" HAVE_WAYLAND_PROTOCOLS THEN "YES (ver ${WAYLAND_PROTOCOLS_VERSION})" ELSE "NO")
+  status("      Xkbcommon:" HAVE_XKBCOMMON THEN "YES (ver ${XKBCOMMON_VERSION})" ELSE "NO")
+  status("      Wayland EGL(Option):" HAVE_WAYLAND_EGL THEN "YES (ver ${WAYLAND_EGL_VERSION})" ELSE "NO")
 endif()
 
 if(WITH_QT OR HAVE_QT)
@@ -1433,7 +1427,11 @@ endif()
 # ========================== MEDIA IO ==========================
 status("")
 status("  Media I/O: ")
-status("    ZLib:"   ZLIB_FOUND THEN "${ZLIB_LIBRARIES} (ver ${ZLIB_VERSION_STRING})" ELSE "build (ver ${ZLIB_VERSION_STRING})")
+if(WITH_ZLIB_NG OR HAVE_ZLIB_NG)
+  status("    ZLib-Ng:" "build (zlib ver ${ZLIB_VERSION_STRING}, zlib-ng ver ${ZLIBNG_VERSION_STRING})")
+else()
+  status("    ZLib:"   ZLIB_FOUND THEN "${ZLIB_LIBRARIES} (ver ${ZLIB_VERSION_STRING})" ELSE "build (ver ${ZLIB_VERSION_STRING})")
+endif()
 
 if(WITH_JPEG OR HAVE_JPEG)
   if(NOT HAVE_JPEG)

@@ -215,6 +215,36 @@ inline int hal_ni_not8u(const uchar *src_data, size_t src_step, uchar *dst_data,
 //! @endcond
 
 /**
+Hamming norm of a vector
+@param a pointer to vector data
+@param n length of a vector
+@param cellSize how many bits of the vector will be added and treated as a single bit, can be 1 (standard Hamming distance), 2 or 4
+@param result pointer to result output
+*/
+//! @addtogroup core_hal_interface_hamming Hamming distance
+//! @{
+inline int hal_ni_normHamming8u(const uchar* a, int n, int cellSize, int* result) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+//! @}
+
+/**
+Hamming distance between two vectors
+@param a pointer to first vector data
+@param b pointer to second vector data
+@param n length of vectors
+@param cellSize how many bits of the vectors will be added and treated as a single bit, can be 1 (standard Hamming distance), 2 or 4
+@param result pointer to result output
+*/
+//! @addtogroup core_hal_interface_hamming Hamming distance
+//! @{
+inline int hal_ni_normHammingDiff8u(const uchar* a, const uchar* b, int n, int cellSize, int* result) { return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+//! @}
+
+//! @cond IGNORED
+#define cv_hal_normHamming8u hal_ni_normHamming8u
+#define cv_hal_normHammingDiff8u hal_ni_normHammingDiff8u
+//! @endcond
+
+/**
 Compare: _dst[i] = src1[i] op src2[i]_
 @param src1_data first source image data
 @param src1_step first source image step
@@ -811,6 +841,27 @@ inline int hal_ni_minMaxIdx(const uchar* src_data, size_t src_step, int width, i
 
 //! @cond IGNORED
 #define cv_hal_minMaxIdx hal_ni_minMaxIdx
+//! @endcond
+
+/**
+   @brief calculates the mean and the standard deviation of array elements independently for each channel
+   @param src_data Source image
+   @param src_step Source image
+   @param width Source image dimensions
+   @param height Source image dimensions
+   @param src_type Type of source image
+   @param mean_val Array of per-channel mean values. May be nullptr, if mean value is not required.
+   @param stddev_val Array of per-channel standard deviation values. May be nullptr, if stddev value is not required.
+   @param mask Specified array region.
+   @param mask_step Mask array step.
+   @sa meanStdDev
+*/
+inline int hal_ni_meanStdDev(const uchar* src_data, size_t src_step, int width, int height,
+                             int src_type, double* mean_val, double* stddev_val, uchar* mask, size_t mask_step)
+{ return CV_HAL_ERROR_NOT_IMPLEMENTED; }
+
+//! @cond IGNORED
+#define cv_hal_meanStdDev hal_ni_meanStdDev
 //! @endcond
 
 /**

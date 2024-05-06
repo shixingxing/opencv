@@ -231,7 +231,13 @@ private:
             &handle_pointer_motion, &handle_pointer_button,
             &handle_pointer_axis, &handle_pointer_frame,
             &handle_pointer_axis_source, &handle_pointer_axis_stop,
-            &handle_pointer_axis_discrete
+            &handle_pointer_axis_discrete,
+#if WL_POINTER_AXIS_VALUE120_SINCE_VERSION >= 8
+            &handle_axis_value120,
+#endif
+#if WL_POINTER_AXIS_RELATIVE_DIRECTION_SINCE_VERSION >= 9
+            &handle_axis_relative_direction,
+#endif
     };
     cv_wl_window *focus_window_{};
 
@@ -277,6 +283,27 @@ private:
         CV_UNUSED(axis);
         CV_UNUSED(discrete);
     }
+
+#if WL_POINTER_AXIS_VALUE120_SINCE_VERSION >= 8
+    static void
+    handle_axis_value120(void *data, struct wl_pointer *wl_pointer, uint32_t axis, int32_t value120) {
+        CV_UNUSED(data);
+        CV_UNUSED(wl_pointer);
+        CV_UNUSED(axis);
+        CV_UNUSED(value120);
+    }
+#endif
+
+#if WL_POINTER_AXIS_RELATIVE_DIRECTION_SINCE_VERSION >= 9
+    static void
+    handle_axis_relative_direction(void *data, struct wl_pointer *wl_pointer, uint32_t axis, uint32_t direction) {
+        CV_UNUSED(data);
+        CV_UNUSED(wl_pointer);
+        CV_UNUSED(axis);
+        CV_UNUSED(direction);
+    }
+#endif
+
 };
 
 class cv_wl_keyboard {
@@ -695,7 +722,13 @@ private:
     };
     struct xdg_toplevel *xdg_toplevel_;
     struct xdg_toplevel_listener xdgtop_listener_{
-            &handle_toplevel_configure, &handle_toplevel_close
+            &handle_toplevel_configure, &handle_toplevel_close,
+#if XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION >= 4
+            &handle_toplevel_configure_bounds,
+#endif
+#if XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION >= 5
+            &handle_toplevel_wm_capabilities,
+#endif
     };
     bool wait_for_configure_ = true;
 
@@ -741,6 +774,27 @@ private:
     static void handle_toplevel_configure(void *, struct xdg_toplevel *, int32_t, int32_t, struct wl_array *);
 
     static void handle_toplevel_close(void *data, struct xdg_toplevel *surface);
+
+#if XDG_TOPLEVEL_CONFIGURE_BOUNDS_SINCE_VERSION >= 4
+    static void
+    handle_toplevel_configure_bounds(void *data, struct xdg_toplevel *xdg_toplevel, int32_t width, int32_t height)
+    {
+        CV_UNUSED(data);
+        CV_UNUSED(xdg_toplevel);
+        CV_UNUSED(width);
+        CV_UNUSED(height);
+    }
+#endif
+
+#if XDG_TOPLEVEL_WM_CAPABILITIES_SINCE_VERSION >= 5
+    static void
+    handle_toplevel_wm_capabilities(void *data, struct xdg_toplevel *xdg_toplevel, struct wl_array *capabilities)
+    {
+        CV_UNUSED(data);
+        CV_UNUSED(xdg_toplevel);
+        CV_UNUSED(capabilities);
+    }
+#endif
 
     static void handle_frame_callback(void *data, struct wl_callback *cb, uint32_t time);
 };
@@ -2406,11 +2460,17 @@ CV_IMPL void cvSetMouseCallback(const char *window_name, CvMouseCallback on_mous
 }
 
 CV_IMPL void cvShowImage(const char *name, const CvArr *arr) {
-    auto cv_core = CvWlCore::getInstance();
-    auto window = cv_core.get_window(name);
+    // see https://github.com/opencv/opencv/issues/25497
+    /*
+     * To reuse the result of getInstance() repeatedly looks like better efficient implementation.
+     * However, it defined as static shared_ptr member variable in CvWlCore.
+     * If it reaches out of scope, cv_wl_core::~cv_wl_core() is called and all windows will be destroyed.
+     * For workaround, avoid it.
+     */
+    auto window = CvWlCore::getInstance().get_window(name);
     if (!window) {
-        cv_core.create_window(name, cv::WINDOW_AUTOSIZE);
-        if (!(window = cv_core.get_window(name)))
+        CvWlCore::getInstance().create_window(name, cv::WINDOW_AUTOSIZE);
+        if (!(window = CvWlCore::getInstance().get_window(name)))
             CV_Error_(StsNoMem, ("Failed to create window: %s", name));
     }
 
@@ -2425,10 +2485,15 @@ void setWindowTitle_WAYLAND(const cv::String &winname, const cv::String &title) 
 
 CV_IMPL int cvWaitKey(int delay) {
     int key = -1;
-    auto limit = ch::duration_cast<ch::nanoseconds>(ch::milliseconds(delay));
+    auto limit = ch::duration_cast<ch::nanoseconds>(ch::milliseconds(delay)).count();
     auto start_time = ch::duration_cast<ch::nanoseconds>(
             ch::steady_clock::now().time_since_epoch())
             .count();
+
+    // See https://github.com/opencv/opencv/issues/25501
+    // Too long sleep_for() makes no response to Wayland ping-pong mechanism
+    // So interval is limited to 33ms (1000ms / 30fps).
+    auto sleep_time_min = ch::duration_cast<ch::nanoseconds>(ch::milliseconds(33)).count();
 
     while (true) {
 
@@ -2448,11 +2513,11 @@ CV_IMPL int cvWaitKey(int delay) {
                 .count();
 
         auto elapsed = end_time - start_time;
-        if (limit.count() > 0 && elapsed >= limit.count()) {
+        if (limit > 0 && elapsed >= limit) {
             break;
         }
 
-        auto sleep_time = 64000 - elapsed;
+        auto sleep_time = std::min(limit - elapsed, sleep_time_min);
         if (sleep_time > 0) {
             std::this_thread::sleep_for(ch::nanoseconds(sleep_time));
         }
